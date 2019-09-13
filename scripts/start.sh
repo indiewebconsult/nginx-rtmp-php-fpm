@@ -19,7 +19,7 @@ fi
 
 # Set custom webroot
 if [ ! -z "$WEBROOT" ]; then
- sed -i "s#root /var/www/html;#root ${WEBROOT};#g" /etc/nginx/sites-available/default.conf
+ sed -i "s#root /var/www/html;#root ${WEBROOT};#g" /etc/nginx/aedan.conf
 else
  webroot=/var/www/html
 fi
@@ -83,6 +83,10 @@ if [ -f /var/www/html/conf/nginx/nginx-site-ssl.conf ]; then
   cp /var/www/html/conf/nginx/nginx-site-ssl.conf /etc/nginx/sites-available/default-ssl.conf
 fi
 
+if [ -f /var/www/html/conf/nginx/aedan-ssl.conf ]; then
+  cp /var/www/html/conf/aedan-ssl.conf /etc/nginx/sites-available/aedan-ssl.conf
+fi
+
 
 # Prevent config files from being filled to infinity by force of stop and restart the container
 lastlinephpconf="$(grep "." /usr/local/etc/php-fpm.conf | tail -1)"
@@ -106,19 +110,19 @@ fi
 
 # Pass real-ip to logs when behind ELB, etc
 if [[ "$REAL_IP_HEADER" == "1" ]] ; then
- sed -i "s/#real_ip_header X-Forwarded-For;/real_ip_header X-Forwarded-For;/" /etc/nginx/sites-available/default.conf
- sed -i "s/#set_real_ip_from/set_real_ip_from/" /etc/nginx/sites-available/default.conf
+ sed -i "s/#real_ip_header X-Forwarded-For;/real_ip_header X-Forwarded-For;/" /etc/nginx/aedan.conf
+ sed -i "s/#set_real_ip_from/set_real_ip_from/" /etc/nginx/aedan.conf
  if [ ! -z "$REAL_IP_FROM" ]; then
-  sed -i "s#172.16.0.0/12#$REAL_IP_FROM#" /etc/nginx/sites-available/default.conf
+  sed -i "s#172.16.0.0/12#$REAL_IP_FROM#" /etc/nginx/aedan.conf
  fi
 fi
 # Do the same for SSL sites
 if [ -f /etc/nginx/sites-available/default-ssl.conf ]; then
  if [[ "$REAL_IP_HEADER" == "1" ]] ; then
-  sed -i "s/#real_ip_header X-Forwarded-For;/real_ip_header X-Forwarded-For;/" /etc/nginx/sites-available/default-ssl.conf
-  sed -i "s/#set_real_ip_from/set_real_ip_from/" /etc/nginx/sites-available/default-ssl.conf
+  sed -i "s/#real_ip_header X-Forwarded-For;/real_ip_header X-Forwarded-For;/" /etc/nginx/sites-available/aedan-ssl.conf
+  sed -i "s/#set_real_ip_from/set_real_ip_from/" /etc/nginx/sites-available/aedan-ssl.conf
   if [ ! -z "$REAL_IP_FROM" ]; then
-   sed -i "s#172.16.0.0/12#$REAL_IP_FROM#" /etc/nginx/sites-available/default-ssl.conf
+   sed -i "s#172.16.0.0/12#$REAL_IP_FROM#" /etc/nginx/sites-available/aedan-ssl.conf
   fi
  fi
 fi
@@ -195,11 +199,11 @@ fi
 
 # Run custom scripts
 if [[ "$RUN_SCRIPTS" == "1" ]] ; then
-  if [ -d "/var/www/html/scripts/" ]; then
+  if [ -d "/var/www/scripts/" ]; then
     # make scripts executable incase they aren't
-    chmod -Rf 750 /var/www/html/scripts/*; sync;
+    chmod -Rf 750 /var/www/scripts/*; sync;
     # run scripts in number order
-    for i in `ls /var/www/html/scripts/`; do /var/www/html/scripts/$i ; done
+    for i in `ls /var/www/scripts/`; do /var/www/scripts/$i ; done
   else
     echo "Can't find script directory"
   fi

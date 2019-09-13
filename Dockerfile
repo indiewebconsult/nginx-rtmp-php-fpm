@@ -1,12 +1,15 @@
 FROM php:7.3.8-fpm-alpine3.9
 
-LABEL maintainer="Ric Harvey <ric@ngd.io>"
+LABEL maintainer="Jen McQuade <jen@indiewebconsulting.com>"
+
+ENV TZ='America/Los Angeles'
 
 ENV php_conf /usr/local/etc/php-fpm.conf
 ENV fpm_conf /usr/local/etc/php-fpm.d/www.conf
 ENV php_vars /usr/local/etc/php/conf.d/docker-vars.ini
 
 ENV NGINX_VERSION 1.16.0
+ENV NGINX_RTMP_VERSION 1.2.1
 ENV LUA_MODULE_VERSION 0.10.14
 ENV DEVEL_KIT_MODULE_VERSION 0.3.0
 ENV LUAJIT_LIB=/usr/lib
@@ -15,6 +18,12 @@ ENV LUAJIT_INC=/usr/include/luajit-2.1
 # resolves #166
 ENV LD_PRELOAD /usr/lib/preloadable_libiconv.so php
 RUN apk add --no-cache --repository http://dl-3.alpinelinux.org/alpine/edge/community gnu-libiconv
+
+RUN cd /usr/src \
+  && apk add git \
+  && git clone https://github.com/arut/nginx-rtmp-module.git \
+  && git clone https://github.com/gperftools/gperftools.git \ 
+  && git clone --recursive https://github.com/google/ngx_brotli.git 
 
 RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
   && CONFIG="\
@@ -33,6 +42,7 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
     --http-scgi-temp-path=/var/cache/nginx/scgi_temp \
     --user=nginx \
     --group=nginx \
+    --with-cc-opt="-Wimplicit-fallthrough=0" \
     --with-http_ssl_module \
     --with-http_realip_module \
     --with-http_addition_module \
@@ -64,6 +74,8 @@ RUN GPG_KEYS=B0F4253373F8F6F510D42178520A9993A1C052F8 \
     --with-http_v2_module \
     --add-module=/usr/src/ngx_devel_kit-$DEVEL_KIT_MODULE_VERSION \
     --add-module=/usr/src/lua-nginx-module-$LUA_MODULE_VERSION \
+    --add-module=/usr/src/nginx-rtmp-module \
+    --add-module=/usr/src/ngx_brotli \
   " \
   && addgroup -S nginx \
   && adduser -D -S -h /var/cache/nginx -s /sbin/nologin -G nginx nginx \ 
@@ -225,16 +237,17 @@ ADD conf/supervisord.conf /etc/supervisord.conf
 # Copy our nginx config
 RUN rm -Rf /etc/nginx/nginx.conf
 ADD conf/nginx.conf /etc/nginx/nginx.conf
+ADD conf/aedan.conf /etc/nginx/aedan.conf
+ADD conf/aedan-ssl.conf /etc/nginx/sites-available/aedan-ssl.conf
 
 # nginx site conf
 RUN mkdir -p /etc/nginx/sites-available/ && \
 mkdir -p /etc/nginx/sites-enabled/ && \
 mkdir -p /etc/nginx/ssl/ && \
+mkdir -p /opt/data && \
 rm -Rf /var/www/* && \
 mkdir /var/www/html/
-ADD conf/nginx-site.conf /etc/nginx/sites-available/default.conf
 ADD conf/nginx-site-ssl.conf /etc/nginx/sites-available/default-ssl.conf
-RUN ln -s /etc/nginx/sites-available/default.conf /etc/nginx/sites-enabled/default.conf
 
 # tweak php-fpm config
 RUN echo "cgi.fix_pathinfo=0" > ${php_vars} &&\
@@ -260,6 +273,45 @@ RUN echo "cgi.fix_pathinfo=0" > ${php_vars} &&\
 #    ln -s /etc/php7/php.ini /etc/php7/conf.d/php.ini && \
 #    find /etc/php7/conf.d/ -name "*.ini" -exec sed -i -re 's/^(\s*)#(.*)/\1;\2/g' {} \;
 
+# Add prerequisites for xdebug
+RUN apk add --no-cache $PHPIZE_DEPS
+
+# Configure xdebug for remote debugging with PhpStorm
+RUN echo "zend_extension=$(find /usr/local/lib/php/extensions/ -name xdebug.so)" > /usr/local/etc/php/conf.d/xdebug.ini \
+&& echo "xdebug.remote_enable=on" >> /usr/local/etc/php/conf.d/xdebug.ini \
+&& echo "xdebug.remote_autostart=on" >> /usr/local/etc/php/conf.d/xdebug.ini \
+&& echo "xdebug.remote_host=docker.for.mac.localhost" >> /usr/local/etc/php/conf.d/xdebug.ini \
+&& echo "xdebug.remote_port=9000" >> /usr/local/etc/php/conf.d/xdebug.ini \
+&& echo "xdebug.remote_log=/var/www/storage/logs/xdebug.log" >> /usr/local/etc/php/conf.d/xdebug.ini
+
+##
+# Alpine Edge repo for aac support
+##
+RUN echo http://dl-cdn.alpinelinux.org/alpine/edge/testing >> /etc/apk/repositories
+RUN apk update && apk add fdk-aac-dev
+
+# Install ffmpeg for RTMP
+RUN apk add \
+  ffmpeg \
+  ffmpeg-dev \
+  lame-dev \
+  rtmpdump-dev \
+  x264-dev \
+  x265-dev \
+  lame \
+  libogg \
+  libass \
+  libvpx \
+  libvorbis \
+  libwebp \
+  libtheora \
+  opus \
+  libvpx-dev \
+  libvorbis-dev \
+  libwebp-dev \
+  libtheora-dev \
+  opus-dev 
+
 
 # Add Scripts
 ADD scripts/start.sh /start.sh
@@ -269,12 +321,13 @@ ADD scripts/letsencrypt-setup /usr/bin/letsencrypt-setup
 ADD scripts/letsencrypt-renew /usr/bin/letsencrypt-renew
 RUN chmod 755 /usr/bin/pull && chmod 755 /usr/bin/push && chmod 755 /usr/bin/letsencrypt-setup && chmod 755 /usr/bin/letsencrypt-renew && chmod 755 /start.sh
 
+
 # copy in code
 ADD src/ /var/www/html/
 ADD errors/ /var/www/errors
 
 
-EXPOSE 443 80
+EXPOSE 80 443 1935 8080
 
 WORKDIR "/var/www/html"
 CMD ["/start.sh"]
