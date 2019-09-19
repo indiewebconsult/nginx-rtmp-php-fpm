@@ -23,7 +23,7 @@ services:
         max-size: "100M"
     environment:
       - "CERT_DIR=${CERT_DIR}"
-      - "DOMAIN=indieweb.hopto.org"
+      - "DOMAIN=stream.indiewebconsulting.com"
       - "GIT_NAME=indiewebconsult"
       - "GIT_EMAIL=info@indiewebconsulting.com"
       - "WEBROOT=/var/www/html"
